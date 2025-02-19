@@ -6,6 +6,9 @@ use warp::Filter;
 use bytes::Bytes;
 use reqwest::Client;
 use log::{info, error, warn};
+use colored::Colorize;
+use serde_json;
+use std::collections::BTreeMap;
 
 /// Command-line options for the proxy.
 #[derive(Parser, Debug, Clone)]
@@ -48,8 +51,10 @@ fn with_client(client: Client) -> impl Filter<Extract = (Client,), Error = Infal
 
 #[tokio::main]
 async fn main() {
-    // Initialize logging (set RUST_LOG as needed, e.g. RUST_LOG=info).
-    env_logger::init();
+    // Initialize logging with a default level so logs are always visible.
+    env_logger::Builder::new()
+        .filter_level(log::LevelFilter::Info)
+        .init();
 
     // Parse command-line arguments.
     let config = Config::parse();
@@ -105,9 +110,26 @@ async fn proxy_handler(
     config: Config,
     client: Client,
 ) -> Result<impl warp::Reply, Infallible> {
-    // Log the incoming request.
-    info!("Received request: {} {}?{}", method, full_path.as_str(), query);
-    info!("Request headers: {:?}", headers);
+    // Build complete URL string (including query, if provided)
+    let complete_url = if query.is_empty() {
+        full_path.as_str().to_string()
+    } else {
+        format!("{}?{}", full_path.as_str(), query)
+    };
+
+    // Fancy logging: display the HTTP verb (in bold blue) and complete request URL (in bold yellow)
+    info!(
+        "{} {}",
+        "Incoming request:".bold().green(),
+        format!("{} {}", method.to_string().bold().blue(), complete_url.bold().yellow())
+    );
+
+    // Pretty-print the request headers as pretty JSON.
+    let headers_map: BTreeMap<_, _> = headers
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.to_str().unwrap_or("")))
+        .collect();
+    info!("Request headers:\n{}", serde_json::to_string_pretty(&headers_map).unwrap());
 
     // Build the forwarding URL.
     let target_base = config.target_url.trim_end_matches('/');

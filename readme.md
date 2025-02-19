@@ -55,17 +55,32 @@ The proxy server accepts several command-line options:
 To run the proxy server with the full parameter names:
 
 ```bash
-cargo run -- --target-url='https://api.example.com/api/' --api-url='http://localhost:6969' --add-cors-headers --extra-header='x-proxy-bob: yes' --extra-header='x-proxy-alice: no'
+cargo run -- \
+    --target-url='https://api.example.com/api/' \
+    --api-url='http://localhost:6969' \
+    --add-cors-headers \
+    --extra-header='x-proxy-bob: yes' \
+    --extra-header='x-proxy-alice: no'
 ```
 
 Using the shorthand options:
 
 ```bash
-cargo run -- -t 'https://api.example.com/api/' -u 'http://localhost:6969' -c -e 'x-proxy-bob: yes' -e 'x-proxy-alice: no'
+cargo run -- \
+    -t 'https://api.example.com/api/' \
+    -u 'http://localhost:6969' \
+    -c \
+    -e 'x-proxy-bob: yes' \
+    -e 'x-proxy-alice: no'
 ```
 
 ```bash
-cargo run --release -- -t 'https://api.example.com/api/' -u 'http://localhost:6969' -c -e 'x-proxy-bob: yes' -e 'x-proxy-alice: no'
+cargo run --release \
+    -t 'https://api.example.com/api/' \
+    -u 'http://localhost:6969' \
+    -c \
+    -e 'x-proxy-bob: yes' \
+    -e 'x-proxy-alice: no'
 ```
 
 ### Configuring Logging
@@ -73,5 +88,10 @@ cargo run --release -- -t 'https://api.example.com/api/' -u 'http://localhost:69
 The project uses the `env_logger` crate for logging. You can adjust the verbosity by setting the `RUST_LOG` environment variable before running the project. For example, to run the proxy with informational logging:
 
 ```bash
-RUST_LOG=info cargo run -- --target-url='https://api.example.com/api/' --api-url='http://localhost:6969' --add-cors-headers --extra-header='x-proxy-bob: yes' --extra-header='x-proxy-alice: no'
+RUST_LOG=info cargo run -- \
+    --target-url='https://api.example.com/api/' \
+    --api-url='http://localhost:6969' \
+    --add-cors-headers \
+    --extra-header='x-proxy-bob: yes' \
+    --extra-header='x-proxy-alice: no'
 ```
