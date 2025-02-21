@@ -96,7 +96,16 @@ In other words, your mocks can either embed a raw text response or point to a fi
 ```bash
 cargo run -- \
     --target-url "https://api.example.com" \
-    --api-url "http://localhost:3000"
+    --api-url "http://localhost:3000" \
+    --mocks "mocks.toml"
+```
+
+**or the short hand version:**
+```bash
+cargo run -- \
+    -t "https://api.example.com" \
+    -u "http://localhost:3000" \
+    -m "~/demos/mocks/mocks.toml"
 ```
 
 Make sure `mocks.toml` is in your working directory. Then, if you hit `GET /test` on `http://localhost:3000`, you'll see `"Hello from test!"` (literal string), while hitting `GET /json-endpoint` tries to serve the contents of `data.json`.
