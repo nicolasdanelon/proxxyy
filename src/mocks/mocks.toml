@@ -26,3 +26,12 @@ body = "./src/mocks/users.json"
 [mocks.headers]
 Content-Type = "application/json"
 X-Mock-Users = "Yes"
+
+[[mocks]]
+method = "GET"
+path = "/hi.txt"
+status = 200
+body = "./src/mocks/hi.txt"
+
+[mocks.headers]
+Content-Type = "text/plain"
