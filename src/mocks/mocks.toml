@@ -1,0 +1,37 @@
+[[mocks]]
+method = "GET"
+path = "/hi.html"
+status = 200
+body = "./src/mocks/hi.html"
+
+[mocks.headers]
+Content-Type = "text/html"
+X-Mock-Header = "Mocked"
+
+[[mocks]]
+method = "POST"
+path = "/v1/mock"
+status = 201
+body = "Mocked POST response body."
+
+[mocks.headers]
+Content-Type = "application/json"
+
+[[mocks]]
+method = "GET"
+path = "/v1/users"
+status = 200
+body = "./src/mocks/users.json"
+
+[mocks.headers]
+Content-Type = "application/json"
+X-Mock-Users = "Yes"
+
+[[mocks]]
+method = "GET"
+path = "/hi.txt"
+status = 200
+body = "./src/mocks/hi.txt"
+
+[mocks.headers]
+Content-Type = "text/plain"
