@@ -8,6 +8,9 @@ This project implements a simple proxy server in Rust that forwards incoming HTT
 - **CORS Headers:** Optionally adds default CORS headers (such as `Content-Type`, `Access-Control-Allow-Origin`, etc.) to responses.
 - **Extra Headers:** Allows you to add additional custom response headers.
 - **Logging:** Logs each incoming request (method, path, headers, etc.) using the `log` crate.
+- **Mocking Support (New!)**
+  - *Mock Files:* You may provide a [TOML file](#using-mocks) specifying an array of mock configurations (`[[mocks]]`).
+  - *Loading Body from File:* If the `body` parameter in the mock ends with `.json`, `.txt`, or `.html`, the system attempts to load that file's contents from disk. Otherwise, it uses the literal string as the body.
 
 ## Prerequisites
 
@@ -38,17 +41,78 @@ cargo build --release
 
 The proxy server accepts several command-line options:
 
-- `--target-url` or `-t`  
+- `--target-url` or `-t`
   The target URL to which incoming requests are proxied.
 
-- `--api-url` or `-u`  
+- `--api-url` or `-u`
   The URL where the proxy server will listen for incoming requests.
 
-- `--add-cors-headers` or `-c`  
+- `--add-cors-headers` or `-c`
   When present, the proxy will add default CORS headers to the response.
 
-- `--extra-header` or `-e`  
+- `--extra-header` or `-e`
   Extra header(s) to include in the response. This option can be used multiple times with the format `"Header-Name: value"`.
+
+- `--mock-file` or `-m`
+  The path to the TOML file containing mock configurations.
+
+## Using Mocks
+
+You can define a local TOML file (e.g., `mocks.toml`) with an array of `[[mocks]]` entries. Here's an example:
+
+```toml
+[[mocks]]
+method = "GET"
+path = "/test"
+body = "Hello from test!"
+
+[[mocks]]
+method = "GET"
+path = "/json-endpoint"
+body = "data.json"
+
+[mocks.headers]
+Content-Type = "application/json"
+
+[[mocks]]
+method = "GET"
+path = "/html-page"
+body = "index.html"
+
+[mocks.headers]
+Content-Type = "text/html"
+```
+
+Here's how the `body` field works:
+- If the `body` string **ends with** `.json`, `.txt`, or `.html`, the proxy attempts to read the file (e.g., `data.json`, `index.html`) from disk.
+- If that file exists and is readable, its contents are returned as the mocked response body.
+- If the file is missing, unreadable, or the extension does not match, the literal `body` string (e.g., `"Hello from test!"`) is served as-is.
+
+In other words, your mocks can either embed a raw text response or point to a file for dynamic loading.
+
+---
+
+**Example usage with a mock file:**
+```bash
+cargo run -- \
+    --target-url "https://api.example.com" \
+    --api-url "http://localhost:3000" \
+    --mocks "mocks.toml"
+```
+
+**or the short hand version:**
+```bash
+cargo run -- \
+    -t "https://api.example.com" \
+    -u "http://localhost:3000" \
+    -m "~/demos/mocks/mocks.toml"
+```
+
+Make sure `mocks.toml` is in your working directory. Then, if you hit `GET /test` on `http://localhost:3000`, you'll see `"Hello from test!"` (literal string), while hitting `GET /json-endpoint` tries to serve the contents of `data.json`.
+
+---
+
+**Note:** Always verify your paths (relative vs. absolute) based on where you execute the binary. If you wish to keep the mock files separate, include the proper path in the `body` field (e.g. `"mocks/data.json"`) and ensure you run the binary from the project's root or otherwise adjust paths accordingly.
 
 ### Example Usage
 
@@ -71,7 +135,8 @@ cargo run -- \
     -u 'http://localhost:6969' \
     -c \
     -e 'x-proxy-bob: yes' \
-    -e 'x-proxy-alice: no'
+    -e 'x-proxy-alice: no' \
+    -m 'mocks.toml'
 ```
 
 ```bash
@@ -80,7 +145,8 @@ cargo run --release \
     -u 'http://localhost:6969' \
     -c \
     -e 'x-proxy-bob: yes' \
-    -e 'x-proxy-alice: no'
+    -e 'x-proxy-alice: no' \
+    -m 'mocks.toml'
 ```
 
 ### Configuring Logging
@@ -93,5 +159,6 @@ RUST_LOG=info cargo run -- \
     --api-url='http://localhost:6969' \
     --add-cors-headers \
     --extra-header='x-proxy-bob: yes' \
-    --extra-header='x-proxy-alice: no'
+    --extra-header='x-proxy-alice: no' \
+    --mock-file='mocks.toml'
 ```

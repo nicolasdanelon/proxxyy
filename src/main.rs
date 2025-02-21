@@ -1,5 +1,7 @@
 use clap::Parser;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
+use std::fs;
 use std::net::SocketAddr;
 use url::Url;
 use warp::Filter;
@@ -8,9 +10,9 @@ use reqwest::Client;
 use log::{info, error, warn};
 use colored::Colorize;
 use serde_json;
-use std::collections::BTreeMap;
+use serde::Deserialize;
 
-/// Command-line options for the proxy.
+/// Main configuration for the proxy, including optional mock config file.
 #[derive(Parser, Debug, Clone)]
 #[clap(author, version, about, long_about = None)]
 struct Config {
@@ -37,6 +39,50 @@ struct Config {
     /// --extra-header='x-proxy-bob: yes'
     #[clap(long = "extra-header", short = 'e')]
     extra_headers: Vec<String>,
+
+    /// (Optional) Path to a TOML file describing mock endpoints.
+    ///
+    /// If provided, the proxy will check for a matching mock before forwarding.
+    #[clap(long = "mock-config", short = 'm')]
+    mock_config: Option<String>,
+}
+
+/// A single mock rule (loaded from the config file).
+/// For example, from TOML:
+///
+/// [[mocks]]
+/// method = "GET"
+/// path = "/v1/mock"
+/// status = 200
+/// body = "Mocked body."
+///
+/// [mocks.headers]
+/// X-My-Header = "123"
+#[derive(Debug, Deserialize, Clone)]
+struct Mock {
+    method: String,
+    path: String,
+    #[serde(default = "default_status")]
+    status: u16,
+    #[serde(default)]
+    body: String,
+    #[serde(default)]
+    headers: HashMap<String, String>,
+}
+
+fn default_status() -> u16 {
+    200
+}
+
+/// The top-level structure of the TOML file:
+/// e.g.
+/// [[mocks]]
+/// method = "GET"
+/// ...
+#[derive(Debug, Deserialize, Clone)]
+struct MockFile {
+    #[serde(default)]
+    mocks: Vec<Mock>,
 }
 
 /// A filter to pass a clone of the configuration to each request.
@@ -44,9 +90,44 @@ fn with_config(config: Config) -> impl Filter<Extract = (Config,), Error = Infal
     warp::any().map(move || config.clone())
 }
 
+/// A filter to pass a clone of the vector of mocks to each request.
+fn with_mocks(
+    mocks: Option<Vec<Mock>>
+) -> impl Filter<Extract = (Option<Vec<Mock>>,), Error = Infallible> + Clone {
+    warp::any().map(move || mocks.clone())
+}
+
 /// A filter to pass a clone of the Reqwest client.
 fn with_client(client: Client) -> impl Filter<Extract = (Client,), Error = Infallible> + Clone {
     warp::any().map(move || client.clone())
+}
+
+/// Loads the body content from a file only if the `body_value` ends with .json, .txt, or .html.
+/// Otherwise returns the literal `body_value`.
+fn load_body_content(body_value: &str) -> String {
+    use std::path::Path;
+    use std::fs;
+    use log::error;
+
+    // Convert &str to `Path` so we can check the extension.
+    let path = Path::new(body_value);
+    let extension = path.extension().and_then(|ext| ext.to_str());
+
+    // Check for recognized extensions
+    match extension {
+        Some("json") | Some("txt") | Some("html") => {
+            // Attempt to read the file. If it fails, log and return the original string.
+            match fs::read_to_string(path) {
+                Ok(contents) => contents,
+                Err(e) => {
+                    error!("Error reading {}: {}", body_value, e);
+                    body_value.to_string()
+                }
+            }
+        }
+        // If extension not recognized or missing, return just the literal
+        _ => body_value.to_string(),
+    }
 }
 
 #[tokio::main]
@@ -59,6 +140,30 @@ async fn main() {
     // Parse command-line arguments.
     let config = Config::parse();
     info!("Starting proxy with config: {:?}", config);
+
+    // If a --mock-config path is provided, parse that file.
+    let optional_mocks = if let Some(ref path) = config.mock_config {
+        match fs::read_to_string(path) {
+            Ok(contents) => {
+                match toml::from_str::<MockFile>(&contents) {
+                    Ok(parsed) => {
+                        info!("Loaded {} mock(s) from {}", parsed.mocks.len(), path);
+                        Some(parsed.mocks)
+                    }
+                    Err(err) => {
+                        error!("Failed to parse mock config ({}): {}", path, err);
+                        None
+                    }
+                }
+            }
+            Err(err) => {
+                error!("Failed to read mock config file {}: {}", path, err);
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // Parse the API URL (where we will listen) to determine the host and port.
     let api_url_parsed = Url::parse(&config.api_url)
@@ -84,7 +189,7 @@ async fn main() {
     //   • the full request path,
     //   • the raw query string (or an empty string if none),
     //   • the full body as bytes,
-    //   • plus our configuration and Reqwest client.
+    //   • plus our configuration, mocks, and Reqwest client.
     let route = warp::any()
         .and(warp::method())
         .and(warp::header::headers_cloned())
@@ -93,6 +198,7 @@ async fn main() {
         .and(warp::query::raw().or_else(|_| async { Ok::<(String,), Infallible>((String::new(),)) }))
         .and(warp::body::bytes())
         .and(with_config(config))
+        .and(with_mocks(optional_mocks))
         .and(with_client(client))
         .and_then(proxy_handler);
 
@@ -100,7 +206,7 @@ async fn main() {
     warp::serve(route).run(socket_addr).await;
 }
 
-/// The handler that proxies every request.
+/// The handler that proxies every request (or returns a mock).
 async fn proxy_handler(
     method: warp::http::Method,
     headers: warp::http::HeaderMap,
@@ -108,16 +214,15 @@ async fn proxy_handler(
     query: String,
     body: Bytes,
     config: Config,
+    mocks: Option<Vec<Mock>>,
     client: Client,
 ) -> Result<impl warp::Reply, Infallible> {
-    // Build complete URL string (including query, if provided)
+    // Fancy logging: display the HTTP verb (in bold blue) and complete request URL (in bold yellow)
     let complete_url = if query.is_empty() {
         full_path.as_str().to_string()
     } else {
         format!("{}?{}", full_path.as_str(), query)
     };
-
-    // Fancy logging: display the HTTP verb (in bold blue) and complete request URL (in bold yellow)
     info!(
         "{} {}",
         "Incoming request:".bold().green(),
@@ -131,13 +236,53 @@ async fn proxy_handler(
         .collect();
     info!("Request headers:\n{}", serde_json::to_string_pretty(&headers_map).unwrap());
 
-    // Build the forwarding URL.
-    let target_base = config.target_url.trim_end_matches('/');
-    let mut new_url = format!("{}{}", target_base, full_path.as_str());
+    // 1) Check if we have a matching mock.
+    if let Some(ref mock_list) = mocks {
+        if let Some(matched) = mock_list.iter().find(|m| {
+            m.method.eq_ignore_ascii_case(method.as_str())
+                && m.path.eq_ignore_ascii_case(full_path.as_str())
+        }) {
+            // If matched, return the mock response immediately, no forwarding.
+            info!("Matched mock for method {} and path {}", matched.method, matched.path);
+
+            // Build a mock response with the given status, body, and headers.
+            let mut builder = warp::http::Response::builder().status(matched.status);
+            // Add the mock headers
+            for (k, v) in &matched.headers {
+                builder = builder.header(k, v);
+            }
+            // If user set --add-cors-headers, add them as well
+            if config.add_cors_headers {
+                builder = builder
+                    .header("Access-Control-Allow-Origin", "*")
+                    .header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+                    .header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+                if !matched.headers.contains_key("Content-Type") {
+                    builder = builder.header("Content-Type", "application/json");
+                }
+            }
+            // Add extra headers from the CLI
+            for h in &config.extra_headers {
+                if let Some((name, value)) = h.split_once(":") {
+                    let (name, value) = (name.trim(), value.trim());
+                    builder = builder.header(name, value);
+                }
+            }
+            let response_body = Bytes::from(load_body_content(&matched.body));
+            let response = builder
+                .body(response_body)
+                .expect("failed to build mock response");
+            return Ok(response);
+        }
+    }
+
+    // 2) No mock matched -> Forward to real target.
+    let target_url = config.target_url.trim_end_matches('/');
+    let mut new_url = format!("{}{}", target_url, full_path.as_str());
     if !query.is_empty() {
         new_url = format!("{}?{}", new_url, query);
     }
-    info!("Forwarding to target URL: {}", new_url);
+    info!("No mock matched. Forwarding to target URL: {}", new_url);
 
     // Create a new request to forward to the target using Reqwest.
     let mut req_builder = client.request(method.clone(), &new_url);
