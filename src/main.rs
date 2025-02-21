@@ -11,7 +11,6 @@ use log::{info, error, warn};
 use colored::Colorize;
 use serde_json;
 use serde::Deserialize;
-use std::path::Path;
 
 /// Main configuration for the proxy, including optional mock config file.
 #[derive(Parser, Debug, Clone)]
