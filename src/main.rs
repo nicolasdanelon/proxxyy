@@ -22,7 +22,7 @@ struct Config {
     #[clap(long = "api-url", short = 'u')]
     api_url: String,
 
-    /// Flag to add CORS headers to responses.
+    /// (Optional) Flag to add CORS headers to responses.
     ///
     /// When enabled, the proxy will add headers such as
     /// Content-Type, Access-Control-Allow-Origin,
@@ -31,7 +31,7 @@ struct Config {
     #[clap(long = "add-cors-headers", short = 'c')]
     add_cors_headers: bool,
 
-    /// Extra headers to add to responses.
+    /// (Optional) Extra headers to add to responses.
     ///
     /// Format: "Header-Name: value". Can be repeated. For example:
     /// --extra-header='x-proxy-bob: yes'
