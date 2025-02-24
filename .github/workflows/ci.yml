@@ -40,4 +40,4 @@ jobs:
           name: proxxyy-${{ matrix.os }}
           pattern: proxxyy-*
           merge-multiple: true
-      - run: ls -R my-artifact
+      - run: ls -R proxxyy-${{ matrix.os }}
