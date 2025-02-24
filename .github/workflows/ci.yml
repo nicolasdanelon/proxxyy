@@ -11,7 +11,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ "macos-15", "macos-13", "ubuntu-24.04", "windows-2025" ]
+        os: [ "macos-15", "ubuntu-24.04", "windows-2025" ]
 
     steps:
       - name: Check out repository
@@ -27,7 +27,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: proxxyy-${{ matrix.os }}
-          path: file-${{ matrix.os }}.txt
+          path: target/release/proxxyy*
+          if-no-files-found: warn
 
   download:
     needs: build
