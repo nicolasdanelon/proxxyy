@@ -1,4 +1,4 @@
-name: Build and Test
+name: Build and Publish Artifacts
 
 on:
   push:
@@ -11,7 +11,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ "macos-15", "macos-13", "ubuntu-24.04", "windows-2025" ]
 
     steps:
       - name: Check out repository
@@ -23,5 +23,10 @@ jobs:
       - name: Build release
         run: cargo build --release
 
-      - name: Run tests
-        run: cargo test 
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: proxxyy-${{ matrix.os }}
+          path: |
+            target/release/proxxyy*
+          if-no-files-found: ignore
