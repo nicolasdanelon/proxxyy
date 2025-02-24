@@ -24,9 +24,19 @@ jobs:
         run: cargo build --release
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: proxxyy-${{ matrix.os }}
-          path: |
-            target/release/proxxyy*
-          if-no-files-found: ignore
+          pattern: proxxyy-*
+          merge-multiple: true
+  download:
+    needs: upload
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: proxxyy-${{ matrix.os }}
+          pattern: proxxyy-*
+          merge-multiple: true
+      - run: ls -R my-artifact
