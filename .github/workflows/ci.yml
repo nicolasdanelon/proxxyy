@@ -38,6 +38,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: proxxyy-${{ matrix.os }}
-          pattern: proxxyy-*
+          pattern: proxxyy*
           merge-multiple: true
       - run: ls -R proxxyy-${{ matrix.os }}
