@@ -27,7 +27,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: proxxyy-${{ matrix.os }}
-          path: file-${{ matrix.runs-on }}.txt
+          path: file-${{ matrix.os }}.txt
 
   download:
     needs: build
