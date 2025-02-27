@@ -1,19 +1,18 @@
+use bytes::Bytes;
+use chrono;
 use clap::Parser;
+use colored::Colorize;
+use log::{error, info, warn};
+use reqwest::Client;
+use serde::Deserialize;
+use serde_json;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
 use std::fs;
 use std::net::SocketAddr;
-use std::path::{Path};
+use std::path::Path;
 use url::Url;
 use warp::Filter;
-use bytes::Bytes;
-use reqwest::Client;
-use log::{info, error, warn};
-use colored::Colorize;
-use serde_json;
-use serde::Deserialize;
-use regex;
-use chrono;
 
 /// Main configuration for the proxy, including optional mock config file.
 #[derive(Parser, Debug, Clone)]
@@ -102,7 +101,7 @@ fn with_config(config: Config) -> impl Filter<Extract = (Config,), Error = Infal
 
 /// A filter to pass a clone of the vector of mocks to each request.
 fn with_mocks(
-    mocks: Option<Vec<Mock>>
+    mocks: Option<Vec<Mock>>,
 ) -> impl Filter<Extract = (Option<Vec<Mock>>,), Error = Infallible> + Clone {
     warp::any().map(move || mocks.clone())
 }
@@ -115,9 +114,9 @@ fn with_client(client: Client) -> impl Filter<Extract = (Client,), Error = Infal
 /// Loads the body content from a file only if the `body_value` ends with .json, .txt, or .html.
 /// Otherwise returns the literal `body_value`.
 fn load_body_content(body_value: &str) -> String {
-    use std::path::Path;
-    use std::fs;
     use log::error;
+    use std::fs;
+    use std::path::Path;
 
     // Convert &str to `Path` so we can check the extension.
     let path = Path::new(body_value);
@@ -154,18 +153,16 @@ async fn main() {
     // If a --mock-config path is provided, parse that file.
     let optional_mocks = if let Some(ref path) = config.mock_config {
         match fs::read_to_string(path) {
-            Ok(contents) => {
-                match toml::from_str::<MockFile>(&contents) {
-                    Ok(parsed) => {
-                        info!("Loaded {} mock(s) from {}", parsed.mocks.len(), path);
-                        Some(parsed.mocks)
-                    }
-                    Err(err) => {
-                        error!("Failed to parse mock config ({}): {}", path, err);
-                        None
-                    }
+            Ok(contents) => match toml::from_str::<MockFile>(&contents) {
+                Ok(parsed) => {
+                    info!("Loaded {} mock(s) from {}", parsed.mocks.len(), path);
+                    Some(parsed.mocks)
                 }
-            }
+                Err(err) => {
+                    error!("Failed to parse mock config ({}): {}", path, err);
+                    None
+                }
+            },
             Err(err) => {
                 error!("Failed to read mock config file {}: {}", path, err);
                 None
@@ -205,7 +202,9 @@ async fn main() {
         .and(warp::header::headers_cloned())
         .and(warp::path::full())
         // Get the raw query string (default to empty string if missing).
-        .and(warp::query::raw().or_else(|_| async { Ok::<(String,), Infallible>((String::new(),)) }))
+        .and(
+            warp::query::raw().or_else(|_| async { Ok::<(String,), Infallible>((String::new(),)) }),
+        )
         .and(warp::body::bytes())
         .and(with_config(config))
         .and(with_mocks(optional_mocks))
@@ -236,7 +235,11 @@ async fn proxy_handler(
     info!(
         "{} {}",
         "Incoming request:".bold().green(),
-        format!("{} {}", method.to_string().bold().blue(), complete_url.bold().yellow())
+        format!(
+            "{} {}",
+            method.to_string().bold().blue(),
+            complete_url.bold().yellow()
+        )
     );
 
     // Pretty-print the request headers as pretty JSON.
@@ -244,7 +247,10 @@ async fn proxy_handler(
         .iter()
         .map(|(k, v)| (k.as_str(), v.to_str().unwrap_or("")))
         .collect();
-    info!("Request headers:\n{}", serde_json::to_string_pretty(&headers_map).unwrap());
+    info!(
+        "Request headers:\n{}",
+        serde_json::to_string_pretty(&headers_map).unwrap()
+    );
 
     // 1) Check if we have a matching mock.
     if let Some(ref mock_list) = mocks {
@@ -253,7 +259,10 @@ async fn proxy_handler(
                 && m.path.eq_ignore_ascii_case(full_path.as_str())
         }) {
             // If matched, return the mock response immediately, no forwarding.
-            info!("Matched mock for method {} and path {}", matched.method, matched.path);
+            info!(
+                "Matched mock for method {} and path {}",
+                matched.method, matched.path
+            );
 
             // Build a mock response with the given status, body, and headers.
             let mut builder = warp::http::Response::builder().status(matched.status);
@@ -265,8 +274,14 @@ async fn proxy_handler(
             if config.add_cors_headers {
                 builder = builder
                     .header("Access-Control-Allow-Origin", "*")
-                    .header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-                    .header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+                    .header(
+                        "Access-Control-Allow-Methods",
+                        "GET, POST, PUT, DELETE, OPTIONS",
+                    )
+                    .header(
+                        "Access-Control-Allow-Headers",
+                        "Content-Type, Authorization",
+                    );
                 if !matched.headers.contains_key("Content-Type") {
                     builder = builder.header("Content-Type", "application/json");
                 }
@@ -279,7 +294,7 @@ async fn proxy_handler(
                 }
             }
             let response_body = Bytes::from(load_body_content(&matched.body));
-            
+
             // Save response if save directory is specified
             if let Some(save_dir) = &config.save_request_directory {
                 save_response_to_file(
@@ -290,7 +305,7 @@ async fn proxy_handler(
                     &String::from_utf8_lossy(&response_body),
                 );
             }
-            
+
             let response = builder
                 .body(response_body)
                 .expect("failed to build mock response");
@@ -428,7 +443,7 @@ fn save_response_to_file(
 ) {
     // Get current timestamp for unique filenames
     let timestamp = chrono::Utc::now().timestamp();
-    
+
     // Combine path and query into URI for the TOML file
     let complete_uri = if query.is_empty() {
         full_path.as_str().to_string()
@@ -442,15 +457,19 @@ fn save_response_to_file(
     if filename_base.starts_with('/') {
         filename_base.remove(0);
     }
-    
+
     // Add query parameters to filename (sanitized)
     if !query.is_empty() {
-        filename_base = format!("{}_{}", filename_base, query.replace('&', "_").replace('=', "_"));
+        filename_base = format!(
+            "{}_{}",
+            filename_base,
+            query.replace('&', "_").replace('=', "_")
+        );
     }
-    
+
     // Replace special characters with underscores
     filename_base = filename_base.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "_");
-    
+
     // Create directory if it doesn't exist
     if let Err(e) = std::fs::create_dir_all(save_dir) {
         error!("Failed to create save directory {}: {}", save_dir, e);
@@ -460,7 +479,7 @@ fn save_response_to_file(
     // 1. Save the beautified JSON response body with timestamp
     let json_filename = format!("{}_{}.json", filename_base, timestamp);
     let json_path = Path::new(save_dir).join(&json_filename);
-    
+
     // Try to parse the response body as JSON for beautification
     let beautified_body = match serde_json::from_str::<serde_json::Value>(response_body) {
         Ok(json_value) => {
@@ -469,16 +488,20 @@ fn save_response_to_file(
                 Ok(pretty) => pretty,
                 Err(_) => response_body.to_string(), // Fallback to original if beautification fails
             }
-        },
+        }
         Err(_) => {
             // Not valid JSON, use as-is
             response_body.to_string()
         }
     };
-    
+
     // Write the beautified JSON to file
     if let Err(e) = std::fs::write(&json_path, &beautified_body) {
-        error!("Failed to save JSON response to {}: {}", json_path.display(), e);
+        error!(
+            "Failed to save JSON response to {}: {}",
+            json_path.display(),
+            e
+        );
         return;
     }
     info!("Saved JSON response to {}", json_path.display());
@@ -486,10 +509,10 @@ fn save_response_to_file(
     // 2. Create or update the TOML mock configuration file
     let toml_filename = "mocked-request.toml";
     let toml_path = Path::new(save_dir).join(toml_filename);
-    
+
     // Relative path to the JSON file from the TOML file's perspective
     let relative_json_path = json_filename;
-    
+
     // Create the TOML content for this mock entry
     let mock_entry = format!(
         "[[mocks]]\nmethod = \"{}\"\npath = \"{}\"\nstatus = 200\nbody = \"{}\"\n",
@@ -497,7 +520,7 @@ fn save_response_to_file(
         complete_uri,
         relative_json_path
     );
-    
+
     // Check if the TOML file already exists
     let toml_content = if toml_path.exists() {
         // Read existing content and append the new mock entry
@@ -505,9 +528,13 @@ fn save_response_to_file(
             Ok(content) => {
                 // Always append the new entry (we want to keep all entries with timestamps)
                 format!("{}\n{}", content, mock_entry)
-            },
+            }
             Err(e) => {
-                error!("Failed to read existing TOML file {}: {}", toml_path.display(), e);
+                error!(
+                    "Failed to read existing TOML file {}: {}",
+                    toml_path.display(),
+                    e
+                );
                 // Create new file with header if we can't read the existing one
                 format!(
                     "# Mock configuration file generated by proxxyy\n# Each entry represents a mock endpoint\n\n{}",
@@ -522,26 +549,15 @@ fn save_response_to_file(
             mock_entry
         )
     };
-    
+
     // Write the TOML file
     if let Err(e) = std::fs::write(&toml_path, toml_content) {
-        error!("Failed to save TOML mock config to {}: {}", toml_path.display(), e);
+        error!(
+            "Failed to save TOML mock config to {}: {}",
+            toml_path.display(),
+            e
+        );
     } else {
         info!("Updated TOML mock config at {}", toml_path.display());
-    }
-    
-    // 3. Also save the original request data as JSON (for backward compatibility)
-    let request_data = serde_json::json!({
-        "method": method.to_string(),
-        "uri": complete_uri,
-        "body": response_body,
-        "timestamp": timestamp
-    });
-    
-    let request_json_path = Path::new(save_dir).join(format!("{}_{}_request.json", filename_base, timestamp));
-    if let Err(e) = std::fs::write(&request_json_path, serde_json::to_string_pretty(&request_data).unwrap_or_else(|_| request_data.to_string())) {
-        error!("Failed to save request data to {}: {}", request_json_path.display(), e);
-    } else {
-        info!("Saved request data to {}", request_json_path.display());
     }
 }
