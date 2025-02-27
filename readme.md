@@ -9,7 +9,7 @@
 
 This project implements a simple proxy server in Rust that forwards incoming HTTP requests to a specified target URL. It supports optional CORS headers, additional extra headers in the response, and logs every incoming request.
 
-## Features
+### Features
 
 - **Request Proxying:** Forwards any incoming request to the provided target URL.
 - **CORS Headers:** Optionally adds default CORS headers (such as `Content-Type`, `Access-Control-Allow-Origin`, etc.) to responses.
@@ -19,7 +19,7 @@ This project implements a simple proxy server in Rust that forwards incoming HTT
   - *Mock Files:* You may provide a [TOML file](#using-mocks) specifying an array of mock configurations (`[[mocks]]`).
   - *Loading Body from File:* If the `body` parameter in the mock ends with `.json`, `.txt`, or `.html`, the system attempts to load that file's contents from disk. Otherwise, it uses the literal string as the body.
 
-## Prerequisites
+### Prerequisites
 
 - [Rust](https://www.rust-lang.org/tools/install) (Rust 1.40 or later is recommended, which comes with Cargo)
 - Internet connectivity to fetch dependencies via Cargo.
@@ -41,10 +41,17 @@ cargo build --release
 > **Tip:** If you prefer running the project with optimizations, you can launch it as a release build:
 >
 > ```bash
-> cargo run --release -- -t 'https://api.example.com/api/' -u 'http://localhost:6969' -c -e 'x-proxy-bob: yes' -e 'x-proxy-alice: no'
+> cargo run --release -- \
+  -t 'https://api.example.com/api/' \
+  -u 'http://localhost:6969' \ \
+  -c \
+  -e 'x-proxy-bob: yes' \
+  -e 'x-proxy-alice: no'
 > ```
 
-## Running the Proxy Server
+Also you can install it with `cargo install --path=.`.
+
+### Running the Proxy Server
 
 The proxy server accepts several command-line options:
 
@@ -63,7 +70,10 @@ The proxy server accepts several command-line options:
 - `--mock-file` or `-m`
   The path to the TOML file containing mock configurations.
 
-## Using Mocks
+- `--save-request-directory` or `-s`
+  You can save incoming requests to a directory. Each request will be saved as a JSON file.
+
+### Using Mocks
 
 You can define a local TOML file (e.g., `mocks.toml`) with an array of `[[mocks]]` entries. Here's an example:
 
@@ -121,40 +131,32 @@ Make sure `mocks.toml` is in your working directory. Then, if you hit `GET /test
 
 **Note:** Always verify your paths (relative vs. absolute) based on where you execute the binary. If you wish to keep the mock files separate, include the proper path in the `body` field (e.g. `"mocks/data.json"`) and ensure you run the binary from the project's root or otherwise adjust paths accordingly.
 
-### Example Usage
 
-To run the proxy server with the full parameter names:
+### Example of Saving Requests feature
+- Filename: `{METHOD}_{PATH}.json` (special characters are replaced with underscores)
+- Contents:
+  ```json
+  {
+    "method": "HTTP_METHOD",
+    "path": "/request/path",
+    "query": "optional_query_string",
+    "headers": {
+      "Header-Name": "value",
+      ...
+    },
+    "body": "request_body"
+  }
+  ```
 
+Example usage:
 ```bash
-cargo run -- \
-    --target-url='https://api.example.com/api/' \
-    --api-url='http://localhost:6969' \
-    --add-cors-headers \
-    --extra-header='x-proxy-bob: yes' \
-    --extra-header='x-proxy-alice: no'
+./proxxyy \
+    --target-url http://example.com \
+    --api-url http://localhost:8080 \
+    --save-request-directory='./requests'
 ```
 
-Using the shorthand options:
-
-```bash
-cargo run -- \
-    -t 'https://api.example.com/api/' \
-    -u 'http://localhost:6969' \
-    -c \
-    -e 'x-proxy-bob: yes' \
-    -e 'x-proxy-alice: no' \
-    -m 'mocks.toml'
-```
-
-```bash
-cargo run --release \
-    -t 'https://api.example.com/api/' \
-    -u 'http://localhost:6969' \
-    -c \
-    -e 'x-proxy-bob: yes' \
-    -e 'x-proxy-alice: no' \
-    -m 'mocks.toml'
-```
+This will save all incoming requests as JSON files in the `./requests` directory.
 
 ### Configuring Logging
 
@@ -168,4 +170,29 @@ RUST_LOG=info cargo run -- \
     --extra-header='x-proxy-bob: yes' \
     --extra-header='x-proxy-alice: no' \
     --mock-file='mocks.toml'
+```
+
+### Full Example Usage
+
+To run the proxy server with the full parameter names:
+
+```bash
+proxxyy --add-cors-headers \
+    --target-url='https://api.example.com/api/' \
+    --api-url='http://localhost:6969' \
+    --extra-header='x-proxy-bob: yes' \
+    --extra-header='x-proxy-alice: no' \
+    --save-request-directory='./requests'
+```
+
+Using the shorthand options:
+
+```bash
+proxxyy -c \
+    -t 'https://api.example.com/api/' \
+    -u 'http://localhost:6969' \
+    -e 'x-proxy-bob: yes' \
+    -e 'x-proxy-alice: no' \
+    -m 'mocks.toml'
+    -s './requests'
 ```
