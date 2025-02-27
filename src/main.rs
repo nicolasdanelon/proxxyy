@@ -11,9 +11,6 @@ use log::{info, error, warn};
 use colored::Colorize;
 use serde_json;
 use serde::Deserialize;
-use std::path::Path;
-use std::fs::{self, create_dir_all};
-use serde_json::json;
 
 /// Main configuration for the proxy, including optional mock config file.
 #[derive(Parser, Debug, Clone)]
@@ -51,8 +48,8 @@ struct Config {
 
     /// (Optional) Directory to save incoming requests as JSON files.
     ///
-    /// If provided, each request will be saved as a JSON file in this directory.
-    /// The filename will be based on the request path and method.
+    /// If provided, each incoming request will be saved as a JSON file
+    /// in this directory, containing the request details.
     #[clap(long = "save-request-directory", short = 's')]
     save_request_directory: Option<String>,
 }
@@ -138,46 +135,6 @@ fn load_body_content(body_value: &str) -> String {
         // If extension not recognized or missing, return just the literal
         _ => body_value.to_string(),
     }
-}
-
-/// Saves the request details to a JSON file in the specified directory.
-fn save_request_to_file(
-    directory: &str,
-    method: &warp::http::Method,
-    path: &str,
-    headers: &warp::http::HeaderMap,
-    query: &str,
-    body: &Bytes,
-) -> std::io::Result<()> {
-    // Create the directory if it doesn't exist
-    create_dir_all(directory)?;
-
-    // Create a safe filename by replacing special characters with underscores
-    let mut filename = format!("{}_{}", method, path.replace("/", "_"));
-    filename = filename.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "_");
-    filename = format!("{}.json", filename.trim_end_matches('_'));
-
-    // Create the full path
-    let file_path = Path::new(directory).join(filename);
-
-    // Convert headers to a map
-    let headers_map: BTreeMap<_, _> = headers
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.to_str().unwrap_or("")))
-        .collect();
-
-    // Create the JSON structure
-    let request_data = json!({
-        "method": method.to_string(),
-        "path": path,
-        "query": query,
-        "headers": headers_map,
-        "body": String::from_utf8_lossy(body)
-    });
-
-    // Write to file
-    fs::write(file_path, serde_json::to_string_pretty(&request_data)?)?;
-    Ok(())
 }
 
 #[tokio::main]
@@ -319,6 +276,18 @@ async fn proxy_handler(
                 }
             }
             let response_body = Bytes::from(load_body_content(&matched.body));
+            
+            // Save response if save directory is specified
+            if let Some(save_dir) = &config.save_request_directory {
+                save_response_to_file(
+                    save_dir,
+                    &method,
+                    &full_path,
+                    &query,
+                    &String::from_utf8_lossy(&response_body),
+                );
+            }
+            
             let response = builder
                 .body(response_body)
                 .expect("failed to build mock response");
@@ -385,6 +354,17 @@ async fn proxy_handler(
         }
     };
 
+    // Save response if save directory is specified
+    if let Some(save_dir) = &config.save_request_directory {
+        save_response_to_file(
+            save_dir,
+            &method,
+            &full_path,
+            &query,
+            &String::from_utf8_lossy(&resp_body),
+        );
+    }
+
     // Add extra headers provided by the user.
     for header in config.extra_headers.iter() {
         if let Some((name, value)) = header.split_once(":") {
@@ -432,19 +412,51 @@ async fn proxy_handler(
         .body(resp_body)
         .expect("failed to build response");
 
-    // Save the request if save directory is specified
-    if let Some(ref save_dir) = config.save_request_directory {
-        if let Err(e) = save_request_to_file(
-            save_dir,
-            &method,
-            full_path.as_str(),
-            &headers,
-            &query,
-            &body,
-        ) {
-            warn!("Failed to save request to {}: {}", save_dir, e);
+    Ok(response)
+}
+
+/// Helper function to save response data to a file
+fn save_response_to_file(
+    save_dir: &str,
+    method: &warp::http::Method,
+    full_path: &warp::path::FullPath,
+    query: &str,
+    response_body: &str,
+) {
+    // Combine path and query into URI
+    let uri = if query.is_empty() {
+        full_path.as_str().to_string()
+    } else {
+        format!("{}?{}", full_path.as_str(), query)
+    };
+
+    let request_data = serde_json::json!({
+        "method": method.to_string(),
+        "uri": uri,
+        "body": response_body
+    });
+
+    // Create safe filename
+    let mut filename = full_path.as_str().to_string();
+    // Remove leading slash
+    if filename.starts_with('/') {
+        filename.remove(0);
+    }
+    // Replace special characters with underscores
+    filename = filename.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+    // Add .json extension
+    filename.push_str(".json");
+
+    // Create directory if it doesn't exist
+    if let Err(e) = std::fs::create_dir_all(save_dir) {
+        error!("Failed to create save directory {}: {}", save_dir, e);
+    } else {
+        // Write request data to file
+        let file_path = std::path::Path::new(save_dir).join(filename);
+        if let Err(e) = std::fs::write(&file_path, request_data.to_string()) {
+            error!("Failed to save response to {}: {}", file_path.display(), e);
+        } else {
+            info!("Saved response to {}", file_path.display());
         }
     }
-
-    Ok(response)
 }
