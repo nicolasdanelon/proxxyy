@@ -256,63 +256,6 @@ async fn proxy_handler(
         )
     );
 
-    // Pretty-print the request headers as pretty JSON if not hidden
-    if !config.hide_headers {
-        let headers_map: BTreeMap<_, _> = headers
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.to_str().unwrap_or("")))
-            .collect();
-        info!(
-            "Request headers:\n{}",
-            serde_json::to_string_pretty(&headers_map).unwrap()
-        );
-    } else {
-        info!("Request headers: [hidden]");
-    }
-    
-    // Log the request body if not hidden
-    if !config.hide_body {
-        // Check if body is actually empty
-        let body_size = body.len();
-        
-        if body_size > 0 {
-            // Log the body size
-            info!("Request body size: {} bytes", body_size);
-            
-            // Try to parse as JSON for pretty printing
-            match String::from_utf8(body.clone().to_vec()) {
-                Ok(body_str) => {
-                    if !body_str.trim().is_empty() {
-                        match serde_json::from_str::<serde_json::Value>(&body_str) {
-                            Ok(json_value) => {
-                                // If it's valid JSON, beautify it
-                                match serde_json::to_string_pretty(&json_value) {
-                                    Ok(pretty) => info!("Request body:\n{}", pretty),
-                                    Err(_) => info!("Request body:\n{}", body_str),
-                                }
-                            },
-                            Err(_) => {
-                                // Not valid JSON, use as-is
-                                info!("Request body:\n{}", body_str)
-                            }
-                        }
-                    } else {
-                        // Body converted to string is empty (whitespace only)
-                        info!("Request body: [empty string]");
-                    }
-                },
-                Err(_) => {
-                    // Not valid UTF-8, show length only
-                    info!("Request body: [binary data]");
-                }
-            }
-        } else {
-            info!("Request body: [empty] (0 bytes)");
-        }
-    } else {
-        info!("Request body: [hidden] ({} bytes)", body.len());
-    }
-
     // Make a clone of the body for forwarding
     let body_for_forwarding = body.clone();
 
@@ -360,7 +303,7 @@ async fn proxy_handler(
             let response_body = Bytes::from(load_body_content(&matched.body));
 
             // Log the mock response size
-            info!("Mock response status: {} (body size: {} bytes)", matched.status, response_body.len());
+            info!("Mock response status: {}", matched.status);
 
             // Save response if save directory is specified
             if let Some(save_dir) = &config.save_request_directory {
@@ -440,7 +383,33 @@ async fn proxy_handler(
     };
 
     // Log the response size
-    info!("Response status: {} (body size: {} bytes)", status, resp_body.len());
+    info!("Response status: {}", status);
+
+    // Pretty-print the request headers as pretty JSON if not hidden
+    if !config.hide_headers {
+        let headers_map: BTreeMap<_, _> = headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.to_str().unwrap_or("")))
+            .collect();
+        info!(
+            "Request headers:\n{}",
+            serde_json::to_string_pretty(&headers_map).unwrap()
+        );
+    } else {
+        info!("Request headers: [hidden]");
+    }
+
+    // print the response body. beautify it if it's valid JSON. but first check if config is set to hide the body
+    if !config.hide_body {
+        let response_body_str = String::from_utf8_lossy(&resp_body);
+        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&response_body_str) {
+            info!("Response body: {}", serde_json::to_string_pretty(&json_value).unwrap());
+        } else {
+            info!("Response body: {}", response_body_str);
+        }
+    } else {
+        info!("Response body: [hidden] ({} bytes)", resp_body.len());
+    }
 
     // Save response if save directory is specified
     if let Some(save_dir) = &config.save_request_directory {
