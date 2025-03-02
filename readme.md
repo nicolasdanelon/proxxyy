@@ -4,7 +4,7 @@
 >
 > ## Not production ready
 >
-> How did you even end up here in the first place? Anyway, this software is definitely not production-ready. Do not use it—at all—unless you want to make my cat very, very sad. And trust me, you don’t want that. 😾
+> How did you even end up here in the first place? Anyway, this software is definitely not production-ready. Do not use it—at all—unless you want to make my cat very, very sad. And trust me, you don't want that. 😾
 >
 
 This project implements a simple proxy server in Rust that forwards incoming HTTP requests to a specified target URL. It supports optional CORS headers, additional extra headers in the response, and logs every incoming request.
@@ -72,6 +72,12 @@ The proxy server accepts several command-line options:
 
 - `--save-request-directory` or `-s`
   You can save incoming requests to a directory. Each request will be saved as a JSON file.
+
+- `--hide-headers` or `-h`
+  When present, request headers will not be logged. Useful for security or reducing log verbosity.
+
+- `--hide-body` or `-b`
+  When present, request bodies will not be logged. Useful for security, privacy, or reducing log verbosity.
 
 ### Using Mocks
 
@@ -232,7 +238,9 @@ proxxyy --add-cors-headers \
     --api-url='http://localhost:6969' \
     --extra-header='x-proxy-bob: yes' \
     --extra-header='x-proxy-alice: no' \
-    --save-request-directory='./requests'
+    --save-request-directory='./requests' \
+    --hide-headers \
+    --hide-body
 ```
 
 Using the shorthand options:
@@ -243,6 +251,8 @@ proxxyy -c \
     -u 'http://localhost:6969' \
     -e 'x-proxy-bob: yes' \
     -e 'x-proxy-alice: no' \
-    -m 'mocks.toml'
-    -s './requests'
+    -m 'mocks.toml' \
+    -s './requests' \
+    -h \
+    -b
 ```

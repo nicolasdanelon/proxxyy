@@ -54,6 +54,20 @@ struct Config {
     /// in this directory, containing the request details.
     #[clap(long = "save-request-directory", short = 's')]
     save_request_directory: Option<String>,
+
+    /// (Optional) Hide request headers from logs.
+    ///
+    /// When enabled, request headers will not be logged, which can be useful
+    /// for security or reducing log verbosity.
+    #[clap(long = "hide-headers", short = 'h')]
+    hide_headers: bool,
+
+    /// (Optional) Hide request bodies from logs.
+    ///
+    /// When enabled, request bodies will not be logged, which can be useful
+    /// for security, privacy, or reducing log verbosity.
+    #[clap(long = "hide-body", short = 'b')]
+    hide_body: bool,
 }
 
 /// A single mock rule (loaded from the config file).
@@ -242,15 +256,65 @@ async fn proxy_handler(
         )
     );
 
-    // Pretty-print the request headers as pretty JSON.
-    let headers_map: BTreeMap<_, _> = headers
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.to_str().unwrap_or("")))
-        .collect();
-    info!(
-        "Request headers:\n{}",
-        serde_json::to_string_pretty(&headers_map).unwrap()
-    );
+    // Pretty-print the request headers as pretty JSON if not hidden
+    if !config.hide_headers {
+        let headers_map: BTreeMap<_, _> = headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.to_str().unwrap_or("")))
+            .collect();
+        info!(
+            "Request headers:\n{}",
+            serde_json::to_string_pretty(&headers_map).unwrap()
+        );
+    } else {
+        info!("Request headers: [hidden]");
+    }
+    
+    // Log the request body if not hidden
+    if !config.hide_body {
+        // Check if body is actually empty
+        let body_size = body.len();
+        
+        if body_size > 0 {
+            // Log the body size
+            info!("Request body size: {} bytes", body_size);
+            
+            // Try to parse as JSON for pretty printing
+            match String::from_utf8(body.clone().to_vec()) {
+                Ok(body_str) => {
+                    if !body_str.trim().is_empty() {
+                        match serde_json::from_str::<serde_json::Value>(&body_str) {
+                            Ok(json_value) => {
+                                // If it's valid JSON, beautify it
+                                match serde_json::to_string_pretty(&json_value) {
+                                    Ok(pretty) => info!("Request body:\n{}", pretty),
+                                    Err(_) => info!("Request body:\n{}", body_str),
+                                }
+                            },
+                            Err(_) => {
+                                // Not valid JSON, use as-is
+                                info!("Request body:\n{}", body_str)
+                            }
+                        }
+                    } else {
+                        // Body converted to string is empty (whitespace only)
+                        info!("Request body: [empty string]");
+                    }
+                },
+                Err(_) => {
+                    // Not valid UTF-8, show length only
+                    info!("Request body: [binary data]");
+                }
+            }
+        } else {
+            info!("Request body: [empty] (0 bytes)");
+        }
+    } else {
+        info!("Request body: [hidden] ({} bytes)", body.len());
+    }
+
+    // Make a clone of the body for forwarding
+    let body_for_forwarding = body.clone();
 
     // 1) Check if we have a matching mock.
     if let Some(ref mock_list) = mocks {
@@ -295,6 +359,9 @@ async fn proxy_handler(
             }
             let response_body = Bytes::from(load_body_content(&matched.body));
 
+            // Log the mock response size
+            info!("Mock response status: {} (body size: {} bytes)", matched.status, response_body.len());
+
             // Save response if save directory is specified
             if let Some(save_dir) = &config.save_request_directory {
                 save_response_to_file(
@@ -333,8 +400,8 @@ async fn proxy_handler(
     }
 
     // Include the body if available.
-    if !body.is_empty() {
-        req_builder = req_builder.body(body);
+    if !body_for_forwarding.is_empty() {
+        req_builder = req_builder.body(body_for_forwarding);
     }
 
     // Send the request.
@@ -371,6 +438,9 @@ async fn proxy_handler(
             return Ok(reply);
         }
     };
+
+    // Log the response size
+    info!("Response status: {} (body size: {} bytes)", status, resp_body.len());
 
     // Save response if save directory is specified
     if let Some(save_dir) = &config.save_request_directory {
