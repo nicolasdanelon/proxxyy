@@ -403,7 +403,10 @@ async fn proxy_handler(
     if !config.hide_body {
         let response_body_str = String::from_utf8_lossy(&resp_body);
         if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&response_body_str) {
-            info!("Response body: {}", serde_json::to_string_pretty(&json_value).unwrap());
+            info!(
+                "Response body: {}",
+                serde_json::to_string_pretty(&json_value).unwrap()
+            );
         } else {
             info!("Response body: {}", response_body_str);
         }
