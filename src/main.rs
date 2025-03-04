@@ -55,19 +55,17 @@ struct Config {
     #[clap(long = "save-request-directory", short = 's')]
     save_request_directory: Option<String>,
 
-    /// (Optional) Hide request headers from logs.
+    /// (Optional) Show request headers in logs.
     ///
-    /// When enabled, request headers will not be logged, which can be useful
-    /// for security or reducing log verbosity.
-    #[clap(long = "hide-headers", short = 'h')]
-    hide_headers: bool,
+    /// When enabled, request headers will be logged. By default, headers are hidden.
+    #[clap(long = "show-headers", short = 'h')]
+    show_headers: bool,
 
-    /// (Optional) Hide request bodies from logs.
+    /// (Optional) Show request bodies in logs.
     ///
-    /// When enabled, request bodies will not be logged, which can be useful
-    /// for security, privacy, or reducing log verbosity.
-    #[clap(long = "hide-body", short = 'b')]
-    hide_body: bool,
+    /// When enabled, request bodies will be logged. By default, bodies are hidden.
+    #[clap(long = "show-body", short = 'b')]
+    show_body: bool,
 }
 
 /// A single mock rule (loaded from the config file).
@@ -385,22 +383,22 @@ async fn proxy_handler(
     // Log the response size
     info!("Response status: {}", status);
 
-    // Pretty-print the request headers as pretty JSON if not hidden
-    if !config.hide_headers {
+    // Pretty-print the response headers as pretty JSON if not hidden
+    if config.show_headers {
         let headers_map: BTreeMap<_, _> = headers
             .iter()
             .map(|(k, v)| (k.as_str(), v.to_str().unwrap_or("")))
             .collect();
         info!(
-            "Request headers:\n{}",
+            "Response headers:\n{}",
             serde_json::to_string_pretty(&headers_map).unwrap()
         );
     } else {
-        info!("Request headers: [hidden]");
+        info!("Response headers: [hidden]");
     }
 
     // print the response body. beautify it if it's valid JSON. but first check if config is set to hide the body
-    if !config.hide_body {
+    if config.show_body {
         let response_body_str = String::from_utf8_lossy(&resp_body);
         if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&response_body_str) {
             info!(

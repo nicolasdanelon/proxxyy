@@ -1,10 +1,8 @@
 on:
   push:
-    # Sequence of patterns matched against refs/tags
     tags:
-      - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+      - "v*" # Push events to matching v*, i.e. v1.0, v20.15.10
 
-# TODO: also publish the dist
 name: Create Release
 
 permissions:
@@ -13,23 +11,19 @@ permissions:
 jobs:
   build:
     permissions:
-      contents: write  # for actions/create-release to create a release
+      contents: write
     name: Create Release
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Go 1.16
-        uses: actions/setup-go@v5.3.0
-        with:
-          go-version: 1.16
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Get release notes
-        id: release-notes
-        run: |
-          go mod download golang.org/x/tools
-          go run ./script/issue-command/main.go set-output \
-            --name=body \
-            "$(go run ./script/release-changelog/main.go)"
+
+      - name: Build release
+        run: cargo build --release
+
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
@@ -41,4 +35,3 @@ jobs:
           body: "${{ steps.release-notes.outputs.body }}"
           draft: true
           prerelease: false
-
