@@ -327,7 +327,10 @@ async fn proxy_handler(
     if !query.is_empty() {
         new_url = format!("{}?{}", new_url, query);
     }
-    info!("No mock matched. Forwarding to target URL: {}", new_url);
+    info!(
+        "No mock files provided. Forwarding request to the target URL: {}",
+        new_url
+    );
 
     // Create a new request to forward to the target using Reqwest.
     let mut req_builder = client.request(method.clone(), &new_url);
@@ -501,13 +504,20 @@ fn save_response_to_file(
             Ok(content) => {
                 // Check if this path already exists in the mocks
                 if content.contains(&format!("path = \"{}\"", complete_uri)) {
-                    info!("A mock for path {} already exists in {}. Skipping mock creation.",
-                          complete_uri, toml_path.display());
+                    info!(
+                        "A mock for path {} already exists in {}. Skipping mock creation.",
+                        complete_uri,
+                        toml_path.display()
+                    );
                     return;
                 }
-            },
+            }
             Err(e) => {
-                error!("Failed to read existing TOML file {}: {}", toml_path.display(), e);
+                error!(
+                    "Failed to read existing TOML file {}: {}",
+                    toml_path.display(),
+                    e
+                );
                 // Continue anyway to create a new file
             }
         }
