@@ -491,6 +491,28 @@ fn save_response_to_file(
         format!("{}?{}", full_path.as_str(), query)
     };
 
+    // Check if a mock for this path already exists in the TOML file
+    let toml_filename = "mocked-request.toml";
+    let toml_path = Path::new(save_dir).join(toml_filename);
+
+    if toml_path.exists() {
+        // Read the existing TOML file
+        match fs::read_to_string(&toml_path) {
+            Ok(content) => {
+                // Check if this path already exists in the mocks
+                if content.contains(&format!("path = \"{}\"", complete_uri)) {
+                    info!("A mock for path {} already exists in {}. Skipping mock creation.",
+                          complete_uri, toml_path.display());
+                    return;
+                }
+            },
+            Err(e) => {
+                error!("Failed to read existing TOML file {}: {}", toml_path.display(), e);
+                // Continue anyway to create a new file
+            }
+        }
+    }
+
     // Create safe filename base (without extension)
     let mut filename_base = full_path.as_str().to_string();
     // Remove leading slash
@@ -547,9 +569,6 @@ fn save_response_to_file(
     info!("Saved JSON response to {}", json_path.display());
 
     // 2. Create or update the TOML mock configuration file
-    let toml_filename = "mocked-request.toml";
-    let toml_path = Path::new(save_dir).join(toml_filename);
-
     // Relative path to the JSON file from the TOML file's perspective
     let relative_json_path = json_filename;
 
