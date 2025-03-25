@@ -384,7 +384,7 @@ async fn proxy_handler(
     };
 
     // Log the response size
-    info!("Response status: {}", status);
+    info!("Response status:  {}", status);
 
     // Pretty-print the response headers as pretty JSON if not hidden
     if config.show_headers {
@@ -397,7 +397,7 @@ async fn proxy_handler(
             serde_json::to_string_pretty(&headers_map).unwrap()
         );
     } else {
-        info!("Response headers: [hidden]");
+        info!("Response headers: [hidden] ({} bytes)", resp_headers.len());
     }
 
     // print the response body. beautify it if it's valid JSON. but first check if config is set to hide the body
@@ -412,7 +412,7 @@ async fn proxy_handler(
             info!("Response body: {}", response_body_str);
         }
     } else {
-        info!("Response body: [hidden] ({} bytes)", resp_body.len());
+        info!("Response body:    [hidden] ({} bytes)", resp_body.len());
     }
 
     // Save response if save directory is specified
