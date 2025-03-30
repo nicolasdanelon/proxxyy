@@ -1,5 +1,7 @@
 # Proxxyy | Rust Proxy Server
 
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/nicolasdanelon/proxxyy?utm_source=oss&utm_medium=github&utm_campaign=nicolasdanelon%2Fproxxyy&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+
 > [!WARNING]
 >
 > ## Not production ready
