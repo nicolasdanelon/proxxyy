@@ -111,7 +111,7 @@ fn with_config(config: Config) -> impl Filter<Extract = (Config,), Error = Infal
     warp::any().map(move || config.clone())
 }
 
-/// A filter to pass a clone of the vector of mocks to each request.
+/// A filter to pass a clone the vector of mocks to each request.
 fn with_mocks(
     mocks: Option<Vec<Mock>>,
 ) -> impl Filter<Extract = (Option<Vec<Mock>>,), Error = Infallible> + Clone {
@@ -400,7 +400,9 @@ async fn proxy_handler(
         info!("Response headers: [hidden] ({} bytes)", resp_headers.len());
     }
 
-    // print the response body. beautify it if it's valid JSON. but first check if config is set to hide the body
+    // print the response body.
+    // beautify it if it's valid JSON.
+    // but first check if config is set to hide the body
     if config.show_body {
         let response_body_str = String::from_utf8_lossy(&resp_body);
         if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&response_body_str) {
@@ -542,8 +544,8 @@ fn save_response_to_file(
     // Replace special characters with underscores
     filename_base = filename_base.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "_");
 
-    // Create directory if it doesn't exist
-    if let Err(e) = std::fs::create_dir_all(save_dir) {
+    // Create a directory if it doesn't exist
+    if let Err(e) = fs::create_dir_all(save_dir) {
         error!("Failed to create save directory {}: {}", save_dir, e);
         return;
     }
@@ -568,7 +570,7 @@ fn save_response_to_file(
     };
 
     // Write the beautified JSON to file
-    if let Err(e) = std::fs::write(&json_path, &beautified_body) {
+    if let Err(e) = fs::write(&json_path, &beautified_body) {
         error!(
             "Failed to save JSON response to {}: {}",
             json_path.display(),
@@ -620,7 +622,7 @@ fn save_response_to_file(
     };
 
     // Write the TOML file
-    if let Err(e) = std::fs::write(&toml_path, toml_content) {
+    if let Err(e) = fs::write(&toml_path, toml_content) {
         error!(
             "Failed to save TOML mock config to {}: {}",
             toml_path.display(),

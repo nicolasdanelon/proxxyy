@@ -1064,7 +1064,7 @@ dependencies = [
 
 [[package]]
 name = "proxxyy"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bytes",
  "chrono",
@@ -1072,7 +1072,6 @@ dependencies = [
  "colored",
  "env_logger",
  "log",
- "regex",
  "reqwest",
  "serde",
  "serde_json",
