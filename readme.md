@@ -6,7 +6,7 @@
 >
 > ## Not production ready
 >
-> How did you even end up here in the first place? Anyway, this software is definitely not production-ready. Do not use it—at all—unless you want to make my cat very, very sad. And trust me, you don't want that. 😾
+> How did you even end up here in the first place? Anyway, this software is definitely not production-ready. Do not use it-at all-unless you want to make my cat very, very sad. And trust me, you don't want that. 😾
 >
 
 This project implements a simple proxy server in Rust that forwards incoming HTTP requests to a specified target URL. It supports optional CORS headers, additional extra headers in the response, and logs every incoming request.
