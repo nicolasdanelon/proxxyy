@@ -4,7 +4,7 @@ use clap::Parser;
 use colored::Colorize;
 use log::{error, info, warn};
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
@@ -48,10 +48,7 @@ struct Config {
     #[clap(long = "mock-config", short = 'm')]
     mock_config: Option<String>,
 
-    /// (Optional) Directory to save incoming requests as JSON files.
-    ///
-    /// If provided, each incoming request will be saved as a JSON file
-    /// in this directory, containing the request details.
+    /// (Optional) Directory to save response bodies and their mock configuration.
     #[clap(long = "save-request-directory", short = 's')]
     save_request_directory: Option<String>,
 
@@ -61,9 +58,9 @@ struct Config {
     #[clap(long = "show-headers", short = 'h')]
     show_headers: bool,
 
-    /// (Optional) Show request bodies in logs.
+    /// (Optional) Show request and response bodies in logs.
     ///
-    /// When enabled, request bodies will be logged. By default, bodies are hidden.
+    /// By default, bodies are hidden.
     #[clap(long = "show-body", short = 'b')]
     show_body: bool,
 }
@@ -79,7 +76,7 @@ struct Config {
 ///
 /// [mocks.headers]
 /// X-My-Header = "123"
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 struct Mock {
     method: String,
     path: String,
@@ -87,7 +84,7 @@ struct Mock {
     status: u16,
     #[serde(default)]
     body: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     headers: HashMap<String, String>,
 }
 
@@ -100,7 +97,7 @@ fn default_status() -> u16 {
 /// [[mocks]]
 /// method = "GET"
 /// ...
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 struct MockFile {
     #[serde(default)]
     mocks: Vec<Mock>,
@@ -123,31 +120,51 @@ fn with_client(client: Client) -> impl Filter<Extract = (Client,), Error = Infal
     warp::any().map(move || client.clone())
 }
 
-/// Loads the body content from a file only if the `body_value` ends with .json, .txt, or .html.
-/// Otherwise returns the literal `body_value`.
-fn load_body_content(body_value: &str) -> String {
-    use log::error;
-    use std::fs;
-    use std::path::Path;
-
-    // Convert &str to `Path` so we can check the extension.
+/// Read file-backed mocks as bytes, preserving literal bodies and legacy working-directory paths.
+fn load_body_content(body_value: &str, mock_config: Option<&str>) -> Bytes {
     let path = Path::new(body_value);
     let extension = path.extension().and_then(|ext| ext.to_str());
-
-    // Check for recognized extensions
-    match extension {
-        Some("json") | Some("txt") | Some("html") => {
-            // Attempt to read the file. If it fails, log and return the original string.
-            match fs::read_to_string(path) {
-                Ok(contents) => contents,
-                Err(e) => {
-                    error!("Error reading {}: {}", body_value, e);
-                    body_value.to_string()
-                }
+    let image = mime_guess::from_path(path)
+        .iter()
+        .any(|mime| mime.type_() == "image");
+    if image || matches!(extension, Some("json" | "txt" | "html" | "bin")) {
+        let relative = mock_config
+            .and_then(|p| Path::new(p).parent())
+            .map(|dir| dir.join(path));
+        let file = relative.as_deref().filter(|p| p.is_file()).unwrap_or(path);
+        match fs::read(file) {
+            Ok(contents) => return Bytes::from(contents),
+            Err(e) => {
+                error!("Error reading {}: {}", file.display(), e);
             }
         }
-        // If extension not recognized or missing, return just the literal
-        _ => body_value.to_string(),
+    }
+    Bytes::copy_from_slice(body_value.as_bytes())
+}
+
+/// Log a body as formatted JSON, plain text, or a binary marker.
+fn format_body_for_logging(body: &[u8], show_body: bool, prefix: &str) {
+    if !show_body {
+        info!("{}: [hidden] ({} bytes)", prefix, body.len());
+        return;
+    }
+    if body.is_empty() {
+        info!("{}: [empty] (0 bytes)", prefix);
+        return;
+    }
+
+    info!("{} size: {} bytes", prefix, body.len());
+    match std::str::from_utf8(body) {
+        Ok(text) if text.trim().is_empty() => info!("{}: [empty string]", prefix),
+        Ok(text) => {
+            match serde_json::from_str::<serde_json::Value>(text)
+                .and_then(|value| serde_json::to_string_pretty(&value))
+            {
+                Ok(pretty) => info!("{}:\n{}", prefix, pretty),
+                Err(_) => info!("{}:\n{}", prefix, text),
+            }
+        }
+        Err(_) => info!("{}: [binary data]", prefix),
     }
 }
 
@@ -254,15 +271,19 @@ async fn proxy_handler(
         )
     );
 
+    format_body_for_logging(&body, config.show_body, "Request body");
+
     // Make a clone of the body for forwarding
     let body_for_forwarding = body.clone();
 
     // 1) Check if we have a matching mock.
     if let Some(ref mock_list) = mocks {
-        if let Some(matched) = mock_list.iter().find(|m| {
-            m.method.eq_ignore_ascii_case(method.as_str())
-                && m.path.eq_ignore_ascii_case(full_path.as_str())
-        }) {
+        let find_mock = |path: &str| {
+            mock_list.iter().find(|m| {
+                m.method.eq_ignore_ascii_case(method.as_str()) && m.path.eq_ignore_ascii_case(path)
+            })
+        };
+        if let Some(matched) = find_mock(&complete_url).or_else(|| find_mock(full_path.as_str())) {
             // If matched, return the mock response immediately, no forwarding.
             info!(
                 "Matched mock for method {} and path {}",
@@ -298,25 +319,24 @@ async fn proxy_handler(
                     builder = builder.header(name, value);
                 }
             }
-            let response_body = Bytes::from(load_body_content(&matched.body));
+            let response_body = load_body_content(&matched.body, config.mock_config.as_deref());
 
-            // Log the mock response size
             info!("Mock response status: {}", matched.status);
-
-            // Save response if save directory is specified
-            if let Some(save_dir) = &config.save_request_directory {
-                save_response_to_file(
-                    save_dir,
-                    &method,
-                    &full_path,
-                    &query,
-                    &String::from_utf8_lossy(&response_body),
-                );
-            }
+            format_body_for_logging(&response_body, config.show_body, "Mock response body");
 
             let response = builder
                 .body(response_body)
                 .expect("failed to build mock response");
+            if let Some(save_dir) = &config.save_request_directory {
+                save_response_to_file(
+                    save_dir,
+                    &method,
+                    &complete_url,
+                    response.status(),
+                    response.headers(),
+                    response.body(),
+                );
+            }
             return Ok(response);
         }
     }
@@ -400,31 +420,17 @@ async fn proxy_handler(
         info!("Response headers: [hidden] ({} bytes)", resp_headers.len());
     }
 
-    // print the response body.
-    // beautify it if it's valid JSON.
-    // but first check if config is set to hide the body
-    if config.show_body {
-        let response_body_str = String::from_utf8_lossy(&resp_body);
-        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&response_body_str) {
-            info!(
-                "Response body: {}",
-                serde_json::to_string_pretty(&json_value).unwrap()
-            );
-        } else {
-            info!("Response body: {}", response_body_str);
-        }
-    } else {
-        info!("Response body:    [hidden] ({} bytes)", resp_body.len());
-    }
+    format_body_for_logging(&resp_body, config.show_body, "Response body");
 
     // Save response if save directory is specified
     if let Some(save_dir) = &config.save_request_directory {
         save_response_to_file(
             save_dir,
             &method,
-            &full_path,
-            &query,
-            &String::from_utf8_lossy(&resp_body),
+            &complete_url,
+            status,
+            &resp_headers,
+            &resp_body,
         );
     }
 
@@ -482,19 +488,13 @@ async fn proxy_handler(
 fn save_response_to_file(
     save_dir: &str,
     method: &warp::http::Method,
-    full_path: &warp::path::FullPath,
-    query: &str,
-    response_body: &str,
+    complete_uri: &str,
+    status: warp::http::StatusCode,
+    headers: &warp::http::HeaderMap,
+    response_body: &[u8],
 ) {
     // Get current timestamp for unique filenames
     let timestamp = chrono::Utc::now().timestamp();
-
-    // Combine path and query into URI for the TOML file
-    let complete_uri = if query.is_empty() {
-        full_path.as_str().to_string()
-    } else {
-        format!("{}?{}", full_path.as_str(), query)
-    };
 
     // Check if a mock for this path already exists in the TOML file
     let toml_filename = "mocked-request.toml";
@@ -525,24 +525,9 @@ fn save_response_to_file(
         }
     }
 
-    // Create safe filename base (without extension)
-    let mut filename_base = full_path.as_str().to_string();
-    // Remove leading slash
-    if filename_base.starts_with('/') {
-        filename_base.remove(0);
-    }
-
-    // Add query parameters to filename (sanitized)
-    if !query.is_empty() {
-        filename_base = format!(
-            "{}_{}",
-            filename_base,
-            query.replace('&', "_").replace('=', "_")
-        );
-    }
-
-    // Replace special characters with underscores
-    filename_base = filename_base.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "_");
+    let filename_base = complete_uri
+        .trim_start_matches('/')
+        .replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "_");
 
     // Create a directory if it doesn't exist
     if let Err(e) = fs::create_dir_all(save_dir) {
@@ -550,47 +535,58 @@ fn save_response_to_file(
         return;
     }
 
-    // 1. Save the beautified JSON response body with timestamp
-    let json_filename = format!("{}_{}.json", filename_base, timestamp);
-    let json_path = Path::new(save_dir).join(&json_filename);
-
-    // Try to parse the response body as JSON for beautification
-    let beautified_body = match serde_json::from_str::<serde_json::Value>(response_body) {
-        Ok(json_value) => {
-            // If it's valid JSON, beautify it
-            match serde_json::to_string_pretty(&json_value) {
-                Ok(pretty) => pretty,
-                Err(_) => response_body.to_string(), // Fallback to original if beautification fails
-            }
+    let mime = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(';').next())
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let extension = if mime.starts_with("image/") {
+        match mime.as_str() {
+            "image/jpeg" => "jpg",
+            _ => mime_guess::get_mime_extensions_str(&mime)
+                .and_then(|exts| exts.first().copied())
+                .unwrap_or("bin"),
         }
-        Err(_) => {
-            // Not valid JSON, use as-is
-            response_body.to_string()
-        }
+    } else if std::str::from_utf8(response_body).is_err() {
+        "bin"
+    } else {
+        "json"
     };
-
-    // Write the beautified JSON to file
-    if let Err(e) = fs::write(&json_path, &beautified_body) {
-        error!(
-            "Failed to save JSON response to {}: {}",
-            json_path.display(),
-            e
-        );
+    let filename = format!("{}_{}.{}", filename_base, timestamp, extension);
+    let path = Path::new(save_dir).join(&filename);
+    let pretty = if extension == "json" {
+        serde_json::from_slice::<serde_json::Value>(response_body)
+            .and_then(|v| serde_json::to_vec_pretty(&v))
+            .ok()
+    } else {
+        None
+    };
+    if let Err(e) = fs::write(&path, pretty.as_deref().unwrap_or(response_body)) {
+        error!("Failed to save response to {}: {}", path.display(), e);
         return;
     }
-    info!("Saved JSON response to {}", json_path.display());
+    info!("Saved response to {}", path.display());
 
-    // 2. Create or update the TOML mock configuration file
-    // Relative path to the JSON file from the TOML file's perspective
-    let relative_json_path = json_filename;
-
-    // Create the TOML content for this mock entry
-    let mock_entry = format!(
-        "[[mocks]]\nmethod = \"{}\"\npath = \"{}\"\nstatus = 200\nbody = \"{}\"\n",
-        method.to_string(),
-        complete_uri,
-        relative_json_path
-    );
+    let mock_entry = toml::to_string(&MockFile {
+        mocks: vec![Mock {
+            method: method.to_string(),
+            path: complete_uri.to_owned(),
+            status: status.as_u16(),
+            body: filename,
+            headers: ["Content-Type", "Content-Encoding"]
+                .into_iter()
+                .filter_map(|name| {
+                    Some((
+                        name.to_owned(),
+                        headers.get(name)?.to_str().ok()?.to_owned(),
+                    ))
+                })
+                .collect(),
+        }],
+    })
+    .expect("failed to serialize mock");
 
     // Check if the TOML file already exists
     let toml_content = if toml_path.exists() {
