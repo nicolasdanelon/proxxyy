@@ -19,7 +19,7 @@ This project implements a simple proxy server in Rust that forwards incoming HTT
 - **Logging:** Logs each incoming request (method, path, headers, etc.) using the `log` crate.
 - **Mocking Support (New!)**
   - *Mock Files:* You may provide a [TOML file](#using-mocks) specifying an array of mock configurations (`[[mocks]]`).
-  - *Loading Body from File:* If the `body` parameter in the mock ends with `.json`, `.txt`, or `.html`, the system attempts to load that file's contents from disk. Otherwise, it uses the literal string as the body.
+  - *Loading Body from File:* Mocks can serve text or binary files, including images.
 
 ### Prerequisites
 
@@ -73,7 +73,7 @@ The proxy server accepts several command-line options:
   The path to the TOML file containing mock configurations.
 
 - `--save-request-directory` or `-s`
-  You can save incoming requests to a directory. Each request will be saved as a JSON file.
+  Saves response bodies and a replayable `mocked-request.toml` in the given directory.
 
 - `--hide-headers` or `-h`
   When present, request headers will not be logged. Useful for security or reducing log verbosity.
@@ -109,7 +109,7 @@ Content-Type = "text/html"
 ```
 
 Here's how the `body` field works:
-- If the `body` string **ends with** `.json`, `.txt`, or `.html`, the proxy attempts to read the file (e.g., `data.json`, `index.html`) from disk.
+- If `body` ends with `.json`, `.txt`, `.html`, `.bin`, or a recognized image extension (e.g., `.png` or `.jpg`), the proxy reads the file as bytes.
 - If that file exists and is readable, its contents are returned as the mocked response body.
 - If the file is missing, unreadable, or the extension does not match, the literal `body` string (e.g., `"Hello from test!"`) is served as-is.
 
@@ -137,7 +137,7 @@ Make sure `mocks.toml` is in your working directory. Then, if you hit `GET /test
 
 ---
 
-**Note:** Always verify your paths (relative vs. absolute) based on where you execute the binary. If you wish to keep the mock files separate, include the proper path in the `body` field (e.g. `"mocks/data.json"`) and ensure you run the binary from the project's root or otherwise adjust paths accordingly.
+Relative body paths are resolved against the mock TOML's directory first, then the working directory.
 
 ## Example of Saving Requests Feature
 
@@ -158,15 +158,15 @@ proxxyy -t "https://api.example.com" -u "http://localhost:6969" -s "./saved_requ
 
 When you use the save feature, the following files are created in the specified directory:
 
-1. **Timestamped JSON Response Files**
-   - Each response is saved as a beautified JSON file
+1. **Timestamped Response Files**
+   - JSON is pretty-printed. Images are saved byte-for-byte with an extension based on the response `Content-Type` (e.g., `.png` or `.jpg`; `.bin` for unknown image types).
    - Filenames include the endpoint path, query parameters, and a timestamp
    - Example: `users_page_1_per_page_10_1700000000.json`
    - Special characters are replaced with underscores for valid filenames
 
 2. **Mock Configuration File (mocked-request.toml)**
    - A single TOML file containing entries for all captured requests
-   - Each entry includes the HTTP method, complete path with query parameters, and a reference to the JSON file
+    - Each entry includes the HTTP method, complete path with query parameters, status, body filename, and the response `Content-Type` when present
    - New requests are appended to this file, preserving the history of all requests
 
 ### Example Directory Structure
