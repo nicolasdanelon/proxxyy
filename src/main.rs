@@ -1,5 +1,4 @@
 use bytes::Bytes;
-use chrono;
 use clap::Parser;
 use colored::Colorize;
 use log::{error, info, warn};
@@ -11,6 +10,7 @@ use std::convert::Infallible;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 use url::Url;
 use warp::Filter;
 
@@ -55,7 +55,7 @@ struct Config {
     /// (Optional) Show request headers in logs.
     ///
     /// When enabled, request headers will be logged. By default, headers are hidden.
-    #[clap(long = "show-headers", short = 'h')]
+    #[clap(long = "show-headers", short = 'H')]
     show_headers: bool,
 
     /// (Optional) Show request and response bodies in logs.
@@ -353,14 +353,16 @@ async fn proxy_handler(
     );
 
     // Create a new request to forward to the target using Reqwest.
-    let mut req_builder = client.request(method.clone(), &new_url);
+    let reqwest_method = reqwest::Method::from_bytes(method.as_str().as_bytes())
+        .expect("incoming HTTP method should be valid for reqwest");
+    let mut req_builder = client.request(reqwest_method, &new_url);
 
     // Copy every header from the incoming request except the "host" header.
     for (name, value) in headers.iter() {
         if name.as_str().to_lowercase() == "host" {
             continue;
         }
-        req_builder = req_builder.header(name, value);
+        req_builder = req_builder.header(name.as_str(), value.as_bytes());
     }
 
     // Include the body if available.
@@ -383,10 +385,15 @@ async fn proxy_handler(
     };
 
     // Retrieve the response status and headers.
-    let status = proxied_response.status();
+    let status = warp::http::StatusCode::from_u16(proxied_response.status().as_u16())
+        .expect("Reqwest response status should be valid for Warp");
     let mut resp_headers = warp::http::HeaderMap::new();
     for (name, value) in proxied_response.headers().iter() {
-        resp_headers.insert(name, value.clone());
+        let warp_name = warp::http::header::HeaderName::from_bytes(name.as_str().as_bytes())
+            .expect("Reqwest response header name should be valid for Warp");
+        let warp_value = warp::http::HeaderValue::from_bytes(value.as_bytes())
+            .expect("Reqwest response header value should be valid for Warp");
+        resp_headers.insert(warp_name, warp_value);
     }
 
     // Get the response body as bytes.
@@ -494,7 +501,10 @@ fn save_response_to_file(
     response_body: &[u8],
 ) {
     // Get current timestamp for unique filenames
-    let timestamp = chrono::Utc::now().timestamp();
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
 
     // Check if a mock for this path already exists in the TOML file
     let toml_filename = "mocked-request.toml";

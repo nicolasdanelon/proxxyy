@@ -75,11 +75,11 @@ The proxy server accepts several command-line options:
 - `--save-request-directory` or `-s`
   Saves response bodies and a replayable `mocked-request.toml` in the given directory.
 
-- `--hide-headers` or `-h`
-  When present, request headers will not be logged. Useful for security or reducing log verbosity.
+- `--show-headers` or `-H`
+  When present, request headers will be logged. By default, headers are hidden.
 
-- `--hide-body` or `-b`
-  When present, request bodies will not be logged. Useful for security, privacy, or reducing log verbosity.
+- `--show-body` or `-b`
+  When present, request and response bodies will be logged. By default, bodies are hidden.
 
 ### Using Mocks
 
@@ -241,8 +241,8 @@ proxxyy --add-cors-headers \
     --extra-header='x-proxy-bob: yes' \
     --extra-header='x-proxy-alice: no' \
     --save-request-directory='./requests' \
-    --hide-headers \
-    --hide-body
+    --show-headers \
+    --show-body
 ```
 
 Using the shorthand options:
@@ -255,6 +255,6 @@ proxxyy -c \
     -e 'x-proxy-alice: no' \
     -m 'mocks.toml' \
     -s './requests' \
-    -h \
+    -H \
     -b
 ```
