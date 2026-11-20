@@ -61,9 +61,9 @@ struct Config {
     #[clap(long = "show-headers", short = 'h')]
     show_headers: bool,
 
-    /// (Optional) Show request bodies in logs.
+    /// (Optional) Show request and response bodies in logs.
     ///
-    /// When enabled, request bodies will be logged. By default, bodies are hidden.
+    /// By default, bodies are hidden.
     #[clap(long = "show-body", short = 'b')]
     show_body: bool,
 }
@@ -148,6 +148,32 @@ fn load_body_content(body_value: &str) -> String {
         }
         // If extension not recognized or missing, return just the literal
         _ => body_value.to_string(),
+    }
+}
+
+/// Log a body as formatted JSON, plain text, or a binary marker.
+fn format_body_for_logging(body: &[u8], show_body: bool, prefix: &str) {
+    if !show_body {
+        info!("{}: [hidden] ({} bytes)", prefix, body.len());
+        return;
+    }
+    if body.is_empty() {
+        info!("{}: [empty] (0 bytes)", prefix);
+        return;
+    }
+
+    info!("{} size: {} bytes", prefix, body.len());
+    match std::str::from_utf8(body) {
+        Ok(text) if text.trim().is_empty() => info!("{}: [empty string]", prefix),
+        Ok(text) => {
+            match serde_json::from_str::<serde_json::Value>(text)
+                .and_then(|value| serde_json::to_string_pretty(&value))
+            {
+                Ok(pretty) => info!("{}:\n{}", prefix, pretty),
+                Err(_) => info!("{}:\n{}", prefix, text),
+            }
+        }
+        Err(_) => info!("{}: [binary data]", prefix),
     }
 }
 
@@ -254,6 +280,8 @@ async fn proxy_handler(
         )
     );
 
+    format_body_for_logging(&body, config.show_body, "Request body");
+
     // Make a clone of the body for forwarding
     let body_for_forwarding = body.clone();
 
@@ -300,8 +328,8 @@ async fn proxy_handler(
             }
             let response_body = Bytes::from(load_body_content(&matched.body));
 
-            // Log the mock response size
             info!("Mock response status: {}", matched.status);
+            format_body_for_logging(&response_body, config.show_body, "Mock response body");
 
             // Save response if save directory is specified
             if let Some(save_dir) = &config.save_request_directory {
@@ -400,22 +428,7 @@ async fn proxy_handler(
         info!("Response headers: [hidden] ({} bytes)", resp_headers.len());
     }
 
-    // print the response body.
-    // beautify it if it's valid JSON.
-    // but first check if config is set to hide the body
-    if config.show_body {
-        let response_body_str = String::from_utf8_lossy(&resp_body);
-        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&response_body_str) {
-            info!(
-                "Response body: {}",
-                serde_json::to_string_pretty(&json_value).unwrap()
-            );
-        } else {
-            info!("Response body: {}", response_body_str);
-        }
-    } else {
-        info!("Response body:    [hidden] ({} bytes)", resp_body.len());
-    }
+    format_body_for_logging(&resp_body, config.show_body, "Response body");
 
     // Save response if save directory is specified
     if let Some(save_dir) = &config.save_request_directory {
